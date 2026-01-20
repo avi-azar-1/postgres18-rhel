@@ -29,7 +29,7 @@
         create_home: yes
     - name: Automaically Source .bashrc
       lineinfile:
-        path: /home/Postgres/.bash_profile
+        path: /home/postgres/.bash_profile
         create: yes
         owner: postgres
         group: postgres
@@ -41,12 +41,12 @@
     - name: Create .bashrc file in /home/Postgres
       file: 
         state: directory
-        dest: /home/Postgres
+        dest: /home/postgres
         owner: postgres    
     - name: Copy .bashrc-template into postgres .bashrc
       copy:
         src: .bashrc-template
-        dest: /home/Postgres/.bashrc
+        dest: /home/postgres/.bashrc
         owner: postgres
         group: postgres
         mode: 0644
@@ -89,7 +89,7 @@
       failed_when: "command_result.stderr_lines is defined and 'pre-existing' not in command_result.msg"
     - name: set enviroment variables
       lineinfile:
-        dest: /home/Postgres/.bashrc
+        dest: /home/postgres/.bashrc
         line: "{{ item.line }}"
         insertafter: "EOF"
         state: present
