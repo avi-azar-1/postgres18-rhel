@@ -19,6 +19,14 @@
       group:
         name: postgres
         state: present
+    - name: Create postgres user
+      user:
+        name: postgres
+        group: postgres
+        home: /home/postgres
+        shell: /bin/bash
+        state: present
+        create_home: yes
     - name: Automaically Source .bashrc
       lineinfile:
         path: /home/Postgres/.bash_profile
