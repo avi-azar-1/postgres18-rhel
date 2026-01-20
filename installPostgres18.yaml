@@ -105,6 +105,14 @@
         mode: '0600'
       vars:
         hostname: "{{ ansible_hostname }}"
+    - name: Deploy the postgresql.hba template
+      template:
+        src: pg_hba-template.conf
+        dest: /db/{{ ansible_hostname }}/pg_data/pg_hba.conf
+        owner: postgres
+        mode: '0600'
+      vars:
+        hostname: "{{ ansible_hostname }}"   
     - name: Disable archiving in postgresql.conf if no_archive var is true
       lineinfile:
         path: /db/{{ ansible_hostname }}/pg_data/postgresql.conf
