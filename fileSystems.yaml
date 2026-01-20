@@ -2,7 +2,7 @@
   hosts: all
   become: true
   vars:
-    base_dir: "{{ lookup('env', 'BASE_DIR') }}"
+    base_dir: "{{ base_dir }}"
   tasks:
     - name: Check if postgres is already installed
       shell: "rpm -qa | grep postgresql | grep -v VRTS"
