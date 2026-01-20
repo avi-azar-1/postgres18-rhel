@@ -1,0 +1,147 @@
+- name: Install PostgreSQL 18.1 on RHEL 8.8
+  hosts: all
+  become: true
+  vars:
+    base_dir: "{{ lookup('env', 'BASE_DIR') }}"
+    db_name:  "{{ lookup('env', 'DB_NAME') }}"
+    user:  "{{ lookup('env', 'DB_USER') }}"
+    password:  "{{ lookup('env', 'DB_PASSWORD') }}"
+  tasks:
+    - name: Check if postgres is already installed
+      shell: "rpm -qa | grep postgresql | grep -v VRTS"
+      register: pg_installed
+      changed_when: false
+      ignore_errors: true
+    - name: make sure mysql is not installed
+      meta: end_host   
+      when: pg_installed.stdout != ""  
+    - name: Ensure postgres group exists
+      group:
+        name: postgres
+        state: present
+    - name: Automaically Source .bashrc
+      lineinfile:
+        path: /home/Postgres/.bash_profile
+        create: yes
+        owner: postgres
+        group: postgres
+        line: |
+          if [ -f ~/.bashrc ]; then
+              . ~/.bashrc
+          fi
+        insertafter: EOF
+    - name: Create .bashrc file in /home/Postgres
+      file: 
+        state: directory
+        dest: /home/Postgres
+        owner: postgres    
+    - name: Copy .bashrc-template into postgres .bashrc
+      copy:
+        src: .bashrc-template
+        dest: /home/Postgres/.bashrc
+        owner: postgres
+        group: postgres
+        mode: 0644
+    - name: Check if postgres is already installed
+      shell: "rpm -qa | grep postgresql | grep -v VRTS"
+      register: pg_installed
+      changed_when: false
+      ignore_errors: true
+    - name: Install postgresql server RPMs
+      shell:
+        cmd: rpm -Uvh *.rpm
+        chdir: "{{ base_dir }}/rpms"
+        warn: false
+      when: pg_installed.stdout == ""
+    - name: Change Data, Log & archive Folders Permissions
+      file:
+        path: /db/{{ ansible_hostname }}/{{ item }}
+        mode: 0700
+        owner: postgres
+        group: postgres
+        state: directory
+      loop:
+        - pg_data
+        - pg_log
+        - pg_archive
+    - name: Change Runtime postgres Variable Data Permissions
+      file: 
+        dest: /var/run/postgresql/
+        owner: postgres
+        recurse: yes
+    - name: Delete everything in pg_data
+      file:
+        state: absent
+        path: /db/{{ ansible_hostname }}/pg_data
+      failed_when: "command_result.msg is defined and 'resource busy' not in command_result.msg"
+      ignore_errors: yes
+    - name: Initialize Database
+      shell: /usr/pgsql-18/bin/initdb -D /db/{{ ansible_hostname }}/pg_data 
+      become_user: postgres
+      failed_when: "command_result.stderr_lines is defined and 'pre-existing' not in command_result.msg"
+    - name: set enviroment variables
+      lineinfile:
+        dest: /home/Postgres/.bashrc
+        line: "{{ item.line }}"
+        insertafter: "EOF"
+        state: present
+      loop:
+        - { line: "export PGDATABASE={{ DB_NAME }}" }
+        - { line: "export PGUSER=postgres" }
+        - { line: "export PGDATA=/db/{{ ansible_hostname }}/pg_data" }
+    - name: Deploy the postgresql.conf template
+      template:
+        src: postgresql-template.conf
+        dest: /db/{{ ansible_hostname }}/pg_data/postgresql.conf
+        owner: postgres
+        mode: '0600'
+      vars:
+        hostname: "{{ ansible_hostname }}"
+    - name: Disable archiving in postgresql.conf if no_archive var is true
+      lineinfile:
+        path: /db/{{ ansible_hostname }}/pg_data/postgresql.conf
+        regexp: "{{item.regexp}}"
+        line: "{{item.line}}"
+        state: present
+        backrefs: yes
+      loop:
+        - { regexp: '^#?archive_mode\s*=.*', line: 'archive_mode = off' }
+        - { regexp: '^#?archive_command\s*=.*', line: 'archive_command = ""' }
+        - { regexp: '^#?restore_command\s*=.*', line: 'restore_command = ""' }
+      when: (no_archive | default(false))   
+    - name: Add Aliases status, pgstop, pgstart & pgrestart
+      blockinfile:
+        path: /home/Postgres/.bashrc
+        block: | 
+          alias status="/usr/pgsql-18/bin/pg_ctl -D /db/{{ ansible_hostname }}/pg_data status"
+          alias pgstop="/usr/pgsql-18/bin/pg_ctl -D /db/{{ ansible_hostname }}/pg_data stop"
+          alias pgstart="/usr/pgsql-18/bin/pg_ctl -D /db/{{ ansible_hostname }}/pg_data start"
+          alias pgrestart="/usr/pgsql-18/bin/pg_ctl -D /db/{{ ansible_hostname }}/pg_data restart"
+        state: present
+    - name: source .bashrc
+      shell: source /home/Postgres/.bashrc
+    - name: Update postgres-18.service
+      lineinfile:
+        path: /usr/lib/systemd/system/postgresql-18.service
+        state: "{{ item.state }}"
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line | default(omit) }}"
+      loop:
+        - { regexp: "^(.*)Group=(.*)$", state: absent }
+        - { regexp: "^(.*)Environment=PGDATA(.*)$", state: present, line: "Environment=PGDATA=/db/{{ ansible_hostname }}/pg_data" }
+    - name: Start DB server and reload .conf file
+      shell: /usr/pgsql-18/bin/pg_ctl -D /db/{{ ansible_hostname }}/pg_data -l /db/{{ ansible_hostname }}/pg_log/startup.log {{ item }}
+      loop: 
+      -  start
+      -  reload
+      become_user: postgres
+    - name: Run PostgreSQL SQLs
+      shell: 'psql -d postgres -c "{{ item }}"'
+      loop: 
+        - "CREATE USER {{ DB_USER }} WITH PASSWORD '{{ DB_PASSWORD }}';"
+        - "CREATE DATABASE {{ DB_NAME }};"
+        - "ALTER DATABASE {{ DB_NAME }} OWNER TO {{ DB_USER }};"
+        - "GRANT CONNECT ON DATABASE {{ DB_NAME }} TO {{ DB_USER }};"
+        - "GRANT ALL PRIVILEGES ON SCHEMA PUBLIC TO {{ DB_USER }};"
+        - "ALTER ROLE {{ DB_USER }} CREATEDB;"
+      become_user: postgres

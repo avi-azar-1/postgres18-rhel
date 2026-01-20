@@ -1,0 +1,3 @@
+- import_playbook: fileSystems.yaml
+- import_playbook: installPostgres18.yaml
+- import_playbook: extras.yaml

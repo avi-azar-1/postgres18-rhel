@@ -1,0 +1,88 @@
+- name: Initialize PostgreSQL File Systems
+  hosts: all
+  become: true
+  vars:
+    base_dir: "{{ lookup('env', 'BASE_DIR') }}"
+  tasks:
+    - name: Check if postgres is already installed
+      shell: "rpm -qa | grep postgresql | grep -v VRTS"
+      register: pg_installed
+      changed_when: false
+      ignore_errors: true
+    - name: make sure mysql is not installed
+      meta: end_host   
+      when: pg_installed.stdout != ""  
+    - name: Install ansible.community.postgresql collection from local file
+      shell: ansible-galaxy collection install {{ base_dir }}/community-postgresql-4.2.0.tar.gz
+      delegate_to: localhost
+      run_once: true
+    - name: Find Three Disks for Log, archive and Data
+      shell: lsblk -ld | egrep "sd[b-d]" | awk '{print $4,$1}' | sort -hr | awk '{print $2}'
+      register: disks
+    - name: Create Physical and Volume Group
+      lvg:
+        vg: "{{ item.vg }}"
+        pvs: "{{ item.pv }}"
+      loop:
+        - { pv: "/dev/{{ disks.stdout_lines.0 }}", vg: "datavg" }
+        - { pv: "/dev/{{ disks.stdout_lines.1 }}", vg: "archivevg" }
+        - { pv: "/dev/{{ disks.stdout_lines.2 }}", vg: "logvg" }
+      register: command_result
+      failed_when: "command_result.msg is defined and 'already' not in command_result.msg"
+    - name: Create Logical Volume
+      lvol:
+        vg: "{{ item.vg }}"
+        lv: "{{ item.lv }}"
+        size: +100%FREE
+      register: command_result
+      failed_when: command_result.rc is defined and command_result.rc not in [ 0, 1, 5 ]
+      loop:
+        - { vg: "datavg", lv: "datalv" }
+        - { vg: "logvg", lv: "loglv" }
+        - { vg: "archivevg", lv: "archivelv" }
+    - name: Format the XFS File System
+      filesystem:
+        fstype: xfs
+        dev: "{{ item }}"
+      register: command_result
+      failed_when: "command_result.msg is defined and 'found' not in command_result.msg"
+      loop:
+        - /dev/mapper/datavg-datalv
+        - /dev/mapper/logvg-loglv
+        - /dev/mapper/archivevg-archivelv
+    - name: Create Directories
+      file:
+        path: "{{ item.path  }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "{{ item.privs }}"
+      loop:
+        - { path: "/db/{{ ansible_hostname }}", privs: 755 }
+        - { path: "/db/{{ ansible_hostname }}/pg_data", privs: 700 }
+        - { path: "/db/{{ ansible_hostname }}/pg_log", privs: 700 }
+        - { path: "/db/{{ ansible_hostname }}/pg_archive", privs: 700 }
+    - name: Mount Filesystems
+      mount:
+        path: "{{ item.path }}"
+        src: "{{ item.src }}"
+        fstype: xfs
+        opts: defaults
+        state: mounted
+      loop:
+        - {
+            path: "/db/{{ ansible_hostname }}/pg_data",
+            src: "/dev/mapper/datavg-datalv",
+          }
+        - { path: "/db/{{ ansible_hostname }}/pg_log", src: "/dev/mapper/logvg-loglv" }
+        - {
+            path: "/db/{{ ansible_hostname }}/pg_archive",
+            src: "/dev/mapper/archivevg-archivelv",
+          }
+    - name: Set SELinux to permissive mode
+      command: setenforce 0
+      ignore_errors: true       
+    - name: Disable selinux
+      selinux:
+        policy: targeted
+        state: permissive

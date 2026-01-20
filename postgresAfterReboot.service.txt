@@ -1,0 +1,24 @@
+[Unit]
+Description=PostgreSQL Auto Start
+After=network.target local-fs.target systemd-tmpfiles-setup.service
+Requires=local-fs.target
+RequiresMountsFor=/run
+
+[Service]
+User=postgres
+Group=postgres
+Type=forking
+
+ExecStartPre=+mkdir -p /run/postgresql
+ExecStartPre=+chown postgres:postgres /run/postgresql
+
+Environment=PGDATA=/db/%H/pg_data
+ExecStart=/usr/pgsql-18/bin/pg_ctl -D ${PGDATA} start
+ExecStop=/usr/pgsql-18/bin/pg_ctl -D ${PGDATA} stop
+ExecReload=/usr/pgsql-18/bin/pg_ctl -D ${PGDATA} reload
+
+RemainAfterExit=yes
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,30 @@
+- name: Set Up Postgres extras
+  hosts: all
+  become: true
+  tasks:
+    - name: Copy postgresAfterReboot.service
+      copy:
+        src: postgresAfterReboot.service
+        dest: /etc/systemd/system/postgresAfterReboot.service
+        owner: root
+        mode: '0644'
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+    - name: Enable postgresAfterReboot.service on boot
+      systemd:
+        name: postgresAfterReboot.service
+        enabled: yes
+    - name: Ensure pg_ctl is in PATH
+      lineinfile:
+        path: /etc/profile.d/postgres.sh
+        line: 'export PATH=/usr/pgsql-18/bin:$PATH'
+        create: yes
+        state: present
+        mode: '0755'
+    - name: Ensure all files under /db are owned by postgres
+      file:
+        path: /db
+        owner: postgres
+        group: postgres
+        recurse: yes
