@@ -2,7 +2,7 @@
   hosts: all
   become: true
   vars:
-    base_dir: "{{ lookup('env', 'BASE_DIR') }}"
+    base_dir: "{{ base_dir }}"
     db_name:  "{{ lookup('env', 'DB_NAME') }}"
     user:  "{{ lookup('env', 'DB_USER') }}"
     password:  "{{ lookup('env', 'DB_PASSWORD') }}"
